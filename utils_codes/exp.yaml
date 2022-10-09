@@ -1,0 +1,185 @@
+common:
+  log_level: INFO
+  seed: 0
+  deterministic: True
+  implement_layer: [SMore_det]
+  plugin_layer: []
+
+other:
+  subdivisions: &subdivisions 1
+  mean: &mean [123.675, 116.280, 103.530]
+  std: &std [58.395, 57.120, 57.375]
+  scale: &scale 255.0
+  workers: &workers 4
+  num_classes: &num_classes 6
+  label_map: &label_map ['OK', 'posun', 'zhuangji', 'yiwu', 'zhejiao', 'mosun']
+
+data:
+  train_data:
+    batch_size: 4
+    workers: *workers
+    group_dataset:
+      type: AspectRatioGroupedDataset
+      drop_last: False
+    dataset:
+      type: LabelmeDataset
+      category_map: *label_map
+      delimiter: '||'
+      data_path:
+        - root: /home  # train.txt中需要剔除 /home前缀
+          path: /home/jiachen/project/SMore-Det/my_exp/code/train.txt
+    transform:
+      - type: Rescale
+        img_scale: [800, 1333]
+      - type: RandomHorizontalFlip
+        prob: 0.5
+      - type: Normalize
+        mean: *mean
+        std: *std
+        scale: *scale
+      - &toTensor
+        type: ToTensor
+
+  eval_data:
+    batch_size: 2
+    workers: *workers
+    group_dataset:
+      type: AspectRatioGroupedDataset
+      drop_last: False
+    dataset:
+      - type: LabelmeDataset
+        category_map: *label_map
+        delimiter: ','
+        data_path:
+          - root: /home
+            path: /home/jiachen/project/SMore-Det/my_exp/code/test.txt
+    transform:
+      - type: Rescale
+        img_scale: [800, 1333]
+      - type: Normalize
+        mean: *mean
+        std: *std
+        scale: *scale
+      - *toTensor
+  test_data:
+    batch_size: 4
+    workers: *workers
+    group_dataset:
+      type: AspectRatioGroupedDataset
+      drop_last: False
+    dataset:
+      - type: LabelmeDataset
+        category_map: *label_map
+        delimiter: ','
+        data_path:
+          - root: /home
+            path: /home/jiachen/project/SMore-Det/my_exp/code/test.txt
+    transform:
+      - type: Rescale
+        img_scale: [800, 1333]
+      - type: Normalize
+        mean: *mean
+        std: *std
+        scale: *scale
+      - *toTensor
+
+model:
+  type: SingleStageDetector
+  backbone:
+    type: DetResNet18
+    out_indices: [0,1,2,3]
+    pretrained_weights: /home/sharedir/industrial/PUBLIC/classification/imagenet_pretrained/resnet18-5c106cde.pth
+    frozen_stages: 1
+    norm_cfg:
+      type: FrozenBN
+      requires_grad: True
+    style: pytorch
+  neck:
+    type: FPN
+    out_channels: 256
+    start_level: 1
+    add_extra_convs: on_output
+    num_outs: 5
+    relu_before_extra_convs: True
+  head:
+    type: FCOSHead
+    num_classes: *num_classes
+    in_channels: 256
+    strides: [8, 16, 32, 64, 128]
+    stacked_convs: 4
+    conv_bias: True
+    loss_cls:
+      - type: FocalLoss
+        gamma: 2.0
+        alpha: 0.25
+        reduction: sum
+    loss_bbox:
+      - type: IoULoss
+
+    loss_centerness:
+      - type: CrossEntropyLoss
+        use_sigmoid: True
+    norm_cfg:
+      type: 'GN'
+      num_groups: 32
+      requires_grad: True
+    post_process:
+      type: MultiClassNMS
+      max_num: 100
+      score_threshold: 0.224
+      iou_threshold: 0.5
+
+train:
+  type: SimpleTrainer
+  with_amp: False
+  max_iter: &max-iter 90000
+  ckpt_freq: 30000 # the same as eval freq.
+  print_freq: 20
+  optimizer:
+    type: SGD
+    lr: 0.01
+    momentum: 0.9
+    weight_decay: 0.0001
+    nesterov: False
+    paramwise_cfg:
+      bias_lr_mult: 1.0
+      bias_decay_mult: 0.0
+      norm_decay_mult: 0.0
+
+    # gradient_clipping:
+    #   clip_type: value
+    #   clip_value: 1.0
+    #   norm_type: 2.0
+
+  lr_scheduler:
+    type: WarmupMultiStepLR
+    milestones: [60000, 80000]
+    gamma: 0.1
+    warmup_factor: 0.001
+    warmup_iter: 1000
+    warmup_method: "linear"
+
+
+eval:
+  type: SimpleInference
+  evaluators:
+    - type: COCODetectionEvaluator
+      label_map: *label_map
+
+visualize:
+  type: DetVisualizer
+  input_dir: './datasets/coco/val2017/'
+  output_dir: './result'
+  vis_img: False
+  painters:
+    - type: BoxPainter
+      num_classes: *num_classes
+      label_map: *label_map
+      vis_threshold: True
+      compare: False
+
+analyze:
+  type: TransformAnalyzer
+  sample: 100
+  label_map: *label_map
+  num_classes: *num_classes

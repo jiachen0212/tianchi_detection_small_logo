@@ -1,0 +1,2 @@
+schedctl create --name multitest --image "10.81.138.201:5000/xsemseg:v1.4" --gpu 4 --cmd "cd /data/home/jiachen/project/SMore-Det/my_exp/mmdetection && source ~/.bashrc && conda activate mmd  && python -m torch.distributed.launch --nnodes=1 --node_rank=0 --master_addr="127.0.0.1" --nproc_per_node=4 --master_port=29588 tools/test.py configs/cascade_rcnn/cascade_rcnn_r50_fpn_1x_coco1.py output_cascade_ycy1/epoch_50.pth --launcher pytorch ${@:4} --show --format-only --options "jsonfile_prefix=multi_test.json""
+
